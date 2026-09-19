@@ -36,9 +36,9 @@ def _make_update(text="Hello", thread_id=10, is_topic_message=True, user_id=100)
     return update
 
 
-def _make_context(max_client=None, topic_store=None, allowed_user_id=None):
+def _make_context(max_client=None, topic_store=None, allowed_user_ids=None):
     ctx = MagicMock()
-    bot_data = {ALLOWED_USER_KEY: allowed_user_id}
+    bot_data = {ALLOWED_USER_KEY: allowed_user_ids}
     if max_client is not None:
         bot_data[MAX_CLIENT_KEY] = max_client
     if topic_store is not None:
@@ -107,29 +107,61 @@ class TestOnTopicMessage:
 
         max_client.send_message.assert_not_called()
 
-    async def test_respects_allowed_user_id(self):
+    async def test_rejects_user_not_in_allowlist(self):
         max_client = MagicMock()
         max_client.send_message = AsyncMock()
 
         update = _make_update(user_id=555)
         ctx = _make_context(max_client=max_client, topic_store=_make_topic_store(),
-                            allowed_user_id=100)
+                            allowed_user_ids=frozenset({100}))
 
         await _on_topic_message(update, ctx)
 
         max_client.send_message.assert_not_called()
 
-    async def test_allows_matching_user_id(self):
+    async def test_allows_user_in_allowlist(self):
         max_client = MagicMock()
         max_client.send_message = AsyncMock(return_value={"ok": True})
 
         update = _make_update(user_id=100)
         ctx = _make_context(max_client=max_client, topic_store=_make_topic_store(),
-                            allowed_user_id=100)
+                            allowed_user_ids=frozenset({100}))
 
         await _on_topic_message(update, ctx)
 
         max_client.send_message.assert_called_once()
+
+    async def test_allows_second_user_in_allowlist(self):
+        max_client = MagicMock()
+        max_client.send_message = AsyncMock(return_value={})
+
+        update = _make_update(user_id=200)
+        ctx = _make_context(
+            max_client=max_client,
+            topic_store=_make_topic_store(),
+            allowed_user_ids=frozenset({100, 200}),
+        )
+
+        await _on_topic_message(update, ctx)
+
+        max_client.send_message.assert_called_once()
+
+    async def test_rejects_missing_effective_user_when_allowlist_enabled(self):
+        max_client = MagicMock()
+        max_client.send_message = AsyncMock()
+
+        update = _make_update(user_id=100)
+        update.effective_user = None
+
+        ctx = _make_context(
+            max_client=max_client,
+            topic_store=_make_topic_store(),
+            allowed_user_ids=frozenset({100, 200}),
+        )
+
+        await _on_topic_message(update, ctx)
+
+        max_client.send_message.assert_not_called()
 
     async def test_warns_when_max_client_missing(self):
         update = _make_update()
@@ -175,13 +207,13 @@ class TestBuildTgApp:
         topic_store = _make_topic_store()
 
         app = build_tg_app("123456:AAABBBCCC", max_client, "-100123456",
-                            topic_store, allowed_user_id=777)
+                            topic_store, allowed_user_ids=frozenset({777}))
 
         assert app.bot_data[MAX_CLIENT_KEY] is max_client
         assert app.bot_data[TOPIC_STORE_KEY] is topic_store
-        assert app.bot_data[ALLOWED_USER_KEY] == 777
+        assert app.bot_data[ALLOWED_USER_KEY] == frozenset({777})
 
-    def test_allowed_user_id_none_when_unset(self):
+    def test_allowed_user_ids_none_when_unset(self):
         app = build_tg_app("123456:AAABBBCCC", MagicMock(), "-100123456",
                             _make_topic_store())
 

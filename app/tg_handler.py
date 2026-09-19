@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 
 MAX_CLIENT_KEY = "max_client"
 TOPIC_STORE_KEY = "topic_store"
-ALLOWED_USER_KEY = "allowed_user_id"
+ALLOWED_USER_KEY = "allowed_user_ids"
 SUPERGROUP_KEY = "supergroup_id"
 
 _MAX_URL_RE = re.compile(r"https?://(?:web\.)?max\.ru/(-?\d+)")
@@ -122,8 +122,11 @@ def _resolve_topic_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
     max_chat_id = topic_store.chat_for_topic(thread_id) if topic_store else None
     if max_chat_id is None:
         return None
-    allowed_user_id = context.bot_data.get(ALLOWED_USER_KEY)
-    if allowed_user_id and update.effective_user and update.effective_user.id != allowed_user_id:
+    allowed_user_ids = context.bot_data.get(ALLOWED_USER_KEY)
+    if allowed_user_ids and (
+        update.effective_user is None
+        or update.effective_user.id not in allowed_user_ids
+    ):
         return None
     max_client: MaxClient | None = context.bot_data.get(MAX_CLIENT_KEY)
     return message, max_chat_id, max_client
@@ -389,8 +392,11 @@ async def _cmd_bind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if message is None:
         return
 
-    allowed_user_id = context.bot_data.get(ALLOWED_USER_KEY)
-    if allowed_user_id and update.effective_user and update.effective_user.id != allowed_user_id:
+    allowed_user_ids = context.bot_data.get(ALLOWED_USER_KEY)
+    if allowed_user_ids and (
+        update.effective_user is None
+        or update.effective_user.id not in allowed_user_ids
+    ):
         return
 
     args = context.args or []
@@ -496,8 +502,11 @@ async def _cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if message is None:
         return
 
-    allowed_user_id = context.bot_data.get(ALLOWED_USER_KEY)
-    if allowed_user_id and update.effective_user and update.effective_user.id != allowed_user_id:
+    allowed_user_ids = context.bot_data.get(ALLOWED_USER_KEY)
+    if allowed_user_ids and (
+        update.effective_user is None
+        or update.effective_user.id not in allowed_user_ids
+    ):
         return
 
     args = context.args or []
@@ -644,8 +653,11 @@ async def _cmd_del(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if message is None:
         return
 
-    allowed_user_id = context.bot_data.get(ALLOWED_USER_KEY)
-    if allowed_user_id and update.effective_user and update.effective_user.id != allowed_user_id:
+    allowed_user_ids = context.bot_data.get(ALLOWED_USER_KEY)
+    if allowed_user_ids and (
+        update.effective_user is None
+        or update.effective_user.id not in allowed_user_ids
+    ):
         return
 
     target = _resolve_topic_target(update, context)
@@ -680,8 +692,11 @@ async def _on_del_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
     await query.answer()
 
-    allowed_user_id = context.bot_data.get(ALLOWED_USER_KEY)
-    if allowed_user_id and update.effective_user and update.effective_user.id != allowed_user_id:
+    allowed_user_ids = context.bot_data.get(ALLOWED_USER_KEY)
+    if allowed_user_ids and (
+        update.effective_user is None
+        or update.effective_user.id not in allowed_user_ids
+    ):
         return
 
     parts = query.data.split(":")
@@ -897,7 +912,8 @@ async def _cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 def build_tg_app(token: str, max_client: MaxClient, supergroup_id: str,
-                 topic_store: TopicStore, allowed_user_id: int | None = None,
+                 topic_store: TopicStore,
+                 allowed_user_ids: frozenset[int] | None = None,
                  proxy_url: str | None = None) -> Application:
     """Build the Telegram Application that routes topic replies back to Max."""
     builder = Application.builder().token(token)
@@ -906,7 +922,10 @@ def build_tg_app(token: str, max_client: MaxClient, supergroup_id: str,
     app = builder.build()
     app.bot_data[MAX_CLIENT_KEY] = max_client
     app.bot_data[TOPIC_STORE_KEY] = topic_store
-    app.bot_data[ALLOWED_USER_KEY] = int(allowed_user_id) if allowed_user_id else None
+    app.bot_data[ALLOWED_USER_KEY] = (
+        frozenset(int(user_id) for user_id in allowed_user_ids)
+        if allowed_user_ids else None
+    )
     app.bot_data[SUPERGROUP_KEY] = int(supergroup_id)
 
     chat_filter = filters.Chat(chat_id=int(supergroup_id))
